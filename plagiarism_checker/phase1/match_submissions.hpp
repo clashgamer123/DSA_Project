@@ -3,10 +3,11 @@
 #include <span>
 #include <vector>
 #include <cmath>
-#include<algorithm>
-#include<unordered_set>
+#include <algorithm>
+#include <unordered_set>
 #include <fstream>
-#include<chrono>
+#include <chrono>
+#include <set>
 // -----------------------------------------------------------------------------
 
 // You are free to add any STL includes above this comment, below the --line--.
@@ -15,13 +16,6 @@
 
 // OPTIONAL: Add your helper functions and data structures here
 
-// std :: cout<<m<<" "<<n<<std :: endl;
-//  // Create ofstream object for file output
-// if(m==570){
-// std::ofstream file_out("debug_output.txt");
-// for(int i = 0; i<m; i++) {file_out<<sub1[i]<<" "<<sub2[i]<<std :: endl ;}
-// }
-
 // Function to find total exact matched length
 int ExactMatchLength(const std :: vector<int>& sub1, const std :: vector<int>& sub2, int& min_length)
 {
@@ -29,41 +23,41 @@ int ExactMatchLength(const std :: vector<int>& sub1, const std :: vector<int>& s
     int m = sub1.size() ;
     int n = sub2.size() ;
     
-    // the total exact matched length
-    int total_matched_length = 0;
+    // Initialize the total exact matched length
+    int total_matched_length = 0 ;
 
     // temporary length holder  
     int temp_length ;
 
-    // A vector of pairs (i, j) indicating pattern match from i to j in sub2
-    // so as to prevent overlapping ie skipping them
-    std :: vector<std :: pair<int, int>> matches ;
-
+    // So as to prevent overlapping ie skipping them we use
+    // Ordered Set to store already matched segments as pairs (start, end) in sub2
+    std::set<std::pair<int, int>> matches;
 
     for(int i = 0; i<=m-min_length; i++)
     {
-        // start checking for match from i;
-        // lets use j_check to make sure we skip matched patterns in sub2
-        int j_check = 0;
+        // start checking for match from i in sub1;
+        // lets use the iterator it to make sure we skip matched patterns in sub2
+        auto it = matches.begin();
         for(int j = 0; j<=n-min_length; j++)
         {
-            if(j_check<matches.size() && j==matches[j_check].first)
+            if(it != matches.end() && j > (it->first-min_length))
             {
-                // we skip the previously matched part in sub2
-                j = matches[j_check].second ;
-                j_check++;
+                // A match of >=min_length isn't possible hence skip it 
+                j = it->second ;
+                ++it;
                 continue;
             }
-            
+            if(sub1[i]!=sub2[j]) { continue ; }
+
             // Find the degree of match starting from here
             temp_length = 0;
             int k1 = i ;
             int k2 = j;
             while(k1<m && k2<n && sub1[k1] == sub2[k2])
             {
-                // break out in case we step into already matched pattern
-                if(j_check<matches.size() && k2>=matches[j_check].first) { break ; }
-
+                if (it != matches.end() && k2 >= it->first) {
+                    break;
+                }
                 k1++; k2++ ;
                 temp_length+=1 ;
             }
@@ -73,92 +67,103 @@ int ExactMatchLength(const std :: vector<int>& sub1, const std :: vector<int>& s
             {
                 // match found
                 total_matched_length+=temp_length ;
-                matches.emplace_back(j, k2-1) ;
+                matches.emplace(j, k2-1) ;
                 i = k1-1 ;
                 break ;
             }
         }  
     }
-
     // return the total exact matched length
     return total_matched_length;
 }
 
-void ComputeApproximateMatches(const std :: vector<int>& sub1, const std :: vector<int> sub2, const std :: vector<std :: vector<int>>& LCS, 
-                               int& longest_approx_length, int& start_index_1, int& start_index_2)
+void ComputeLCS(const std::vector<int>& sub1, const std::vector<int>& sub2, 
+                std::vector<std::vector<int>>& LCS, 
+                std::vector<int>& CommonSeq_1, std::vector<int>& CommonSeq_2)
 {
-    int m = sub1.size() ;
-    int n = sub2.size() ;
-    // We are solving for the longest approximate match 
-    // Lets use an iterative approach
-    double ratio;
-    int length;
-    bool found = false ;
-    for(int f = 1; f<=m; f++)
+    int n = sub1.size();
+    int m = sub2.size();
+    
+    // Compute the LCS lengths using a dp table using recursive relations
+    // We are using 1 indexing
+    for (int i = 1; i <= n; i++)
     {
-        int slimit = n+1 - std :: ceil(0.8*static_cast<double>(m-f+1)) ;
-        for(int s = 1; s<=slimit; s++)
+        for (int j = 1; j <= m; j++)
         {
-            found  = false ;
-            // start pattern match from f in sub1 and s in sub2(1-indexed)
-            int l1 = m, l2 = n;
-            while(l1>=f+29 && l2>=s+29)
+            if (sub1[i - 1] == sub2[j - 1])
             {
-                length = LCS[l1][l2]-LCS[f-1][s-1] ;
-                ratio = length/static_cast<double>(std :: max(l1-f+1, l2-s+1)) ;
-                if(std :: max(l1-f+1, l2-s+1)>=30 && ratio>=0.8)
-                {   if(length>longest_approx_length)
-                    {
-                        longest_approx_length = length;
-                        start_index_1 = f-1;
-                        start_index_2 = s-1;
-                    }
-                    found = true ; break ;
-                }
-                if(l1-f+1>l2-s+1)
-                {
-                    l1--; continue ;
-                }
-                if(l1-f+1<l2-s+1)
-                {
-                    l2--; continue ;
-                }
-                l1--; l2--; continue;
+                LCS[i][j] = 1 + LCS[i - 1][j - 1];
             }
-
-            if(found) { break ;}
+            else
+            {
+                LCS[i][j] = std::max(LCS[i - 1][j], LCS[i][j - 1]);
+            }
         }
-        if(m-f<=longest_approx_length || m-f<30) { break ; }
     }
+    
+    // Backtrack to find the matching indices for the LCS
+    int i = n, j = m;
+    while (i > 0 && j > 0)
+    {
+        // If elements match, add indices to the sequences
+        if (sub1[i - 1] == sub2[j - 1])
+        {
+            CommonSeq_1.push_back(i); // 1-indexed position in sub1
+            CommonSeq_2.push_back(j); // 1-indexed position in sub2
+            i--;
+            j--;
+        }
+        // Move in the direction of the greater value in LCS table
+        else if (LCS[i - 1][j] >= LCS[i][j - 1])
+        {
+            i--;
+        }
+        else
+        {
+            j--;
+        }
+    }
+
+    // Since we collected indices in reverse order, reverse the vectors to get the correct sequence
+    std::reverse(CommonSeq_1.begin(), CommonSeq_1.end());
+    std::reverse(CommonSeq_2.begin(), CommonSeq_2.end());
 
     return ;
 }
 
-void ComputeLCS(const std :: vector<int>& sub1, const std :: vector<int>& sub2, std :: vector<std :: vector<int>>& LCS)
+
+void ComputeApproximateMatches(const std :: vector<int>& sub1, const std :: vector<int>& sub2, const std :: vector<int>& CommonSeq_1, 
+                               const std :: vector<int>& CommonSeq_2, int& longest_approx_length, int& start_index_1, int& start_index_2)
 {
-    // LCS[i][j] == Length of longest common subsequence from 1 to i in sub1 
-    // and 1 to j in sub2. 
-    // Lets use an iterative approch
-    for(int i = 1; i<=sub1.size(); i++)
+    // Temporary length and ratio holders
+    int length ;
+    double ratio ;
+    int n = CommonSeq_1.size() ;
+
+    for(int i = 0; i<n; i++)
     {
-        for(int j = 1; j<=sub2.size(); j++)
+        for(int j = n-1; j>=i; j--)
         {
-            // LCS of sub1[1:i] and sub2[1:j] ( 1 indexed notation )
-            if(sub1[i-1] == sub2[j-1])
+            if(CommonSeq_1[j]-CommonSeq_1[i]+1<30) {break ; }
+            if(CommonSeq_2[j]-CommonSeq_2[i]+1<30) {break ; }
+            length = std :: max(CommonSeq_1[j] - CommonSeq_1[i] + 1, CommonSeq_2[j] - CommonSeq_2[i] + 1) ;
+            ratio = static_cast<double>(j-i+1)/(length) ;
+            if(ratio<0.8) {continue ; }
+            if(length>longest_approx_length)
             {
-                LCS[i][j] = 1 + LCS[i-1][j-1] ;
-                continue; 
+                longest_approx_length = length ;
+                start_index_1 = CommonSeq_1[i]-1 ;
+                start_index_2 = CommonSeq_2[i]-1 ;
             }
-            LCS[i][j] = std :: max(LCS[i-1][j], LCS[i][j-1]) ;
         }
     }
-
     return ;
 }
 
 std::array<int, 5> match_submissions(std::vector<int> &sub1, std::vector<int> &sub2)
 {
     auto start = std :: chrono :: high_resolution_clock :: now() ;
+
     // sub1 and sub2 are the 2 submissions
     int m = sub1.size() ;
     int n = sub2.size() ;
@@ -174,13 +179,15 @@ std::array<int, 5> match_submissions(std::vector<int> &sub1, std::vector<int> &s
     int min_length = 10;
     total_exact_matched_length = ExactMatchLength(sub1, sub2, min_length) ;
 
-    // Fill the dp table of LCS
+    // Fill the dp table of LCS and comppute both sequences
     std :: vector<std :: vector<int>> LCS(m+1, std :: vector<int>(n+1, 0)) ;
-    ComputeLCS(sub1, sub2, LCS);
+    std :: vector<int> CommonSeq_1;
+    std :: vector<int> CommonSeq_2;
+    ComputeLCS(sub1, sub2, LCS, CommonSeq_1, CommonSeq_2);
 
-    // Compute the longest approx matches 
-    ComputeApproximateMatches(sub1, sub2, LCS, longest_approx_length, start_index_1, start_index_2) ;
-
+    // Compute the longest approx match and start indices
+    ComputeApproximateMatches(sub1, sub2, CommonSeq_1, CommonSeq_2, longest_approx_length, start_index_1, start_index_2) ;
+    
     // Calculate the plagiarism ratio based on longest match and the size of the smaller submission
     double plagiarism_ratio = static_cast<double>(total_exact_matched_length) / std :: min(m, n);
 
@@ -210,24 +217,4 @@ std::array<int, 5> match_submissions(std::vector<int> &sub1, std::vector<int> &s
 }
 
 
-// 1
-// 410
-// 280
-// 280
-// 160
 
-// 1
-// 890
-// 890
-// 0
-// 0
-
-// 1
-// 490
-// 180
-// 180
-// 170
-
-// 423
-// 903
-// 509
