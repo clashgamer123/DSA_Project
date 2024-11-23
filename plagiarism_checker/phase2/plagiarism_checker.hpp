@@ -1,9 +1,12 @@
 #include "structures.hpp"
 // -----------------------------------------------------------------------------
 #include <chrono>
+#include <vector>
 #include <set>
-#include <mutex>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
 // You are free to add any STL includes above this comment, below the --line--.
 // DO NOT add "using namespace std;" or include any other files/libraries.
 // Also DO NOT add the include "bits/stdc++.h"
@@ -20,7 +23,7 @@ struct submission_data_t
 
     public:
     submission_data_t(void) ;
-    submission_data_t(std :: vector<int>& tokens, int& time_stamp, std :: shared_ptr<submission_t> addr) ;
+    submission_data_t(std :: vector<int>& tokens, int& time_stamp, std :: shared_ptr<submission_t>& addr) ;
     ~submission_data_t(void) ;
 };
 
@@ -44,4 +47,26 @@ protected:
     void plagiarism_check(int index) ;
     bool pair_wise_plag(const std :: vector<int>& sub1, const std :: vector<int>& sub2, int& no_matches) ;
     void plag_this_submission(std :: shared_ptr<submission_t>& addr) ;
+
+private:
+    // Number of original files
+    int numOriginal ;
+
+    // thread for background processing
+    std :: thread background_thread ;
+
+    // mutex for thread safe access
+    std :: mutex queue_mutex ;
+
+    // conditional variable for thread notifications
+    std :: condition_variable queue_condition ;
+
+    // Queue of submission indexes to be processed
+    std :: queue<int> submission_queue ;
+
+    // Flag to stop the thread
+    bool stop_thread ;
+
+    // Background thread function
+    void process_queue(void) ; 
 };
