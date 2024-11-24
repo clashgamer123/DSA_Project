@@ -5,174 +5,223 @@
 #define MIN_LENGTH 15
 #define TIME_IN_MILLI 1000
 #define MAX_NUMBER_OF_FILES 100
-// auto start = std :: chrono :: high_resolution_clock :: now() ;
-// auto stop = std :: chrono :: high_resolution_clock :: now() ;
-// auto duration = std :: chrono :: duration_cast<std :: chrono :: milliseconds>(stop - start) ;
-// std :: cout<<"Time taken for exact match : "<<duration.count()<<endl ;
+#define BASE 31
+#define MOD 1000000007
 
-// Implement submission_data_t methods
-submission_data_t :: submission_data_t(void) : time_stamp(0), addr(nullptr), no_matches(0), isPlagged(false) { }
+// submission_data_t methods
 
-submission_data_t :: submission_data_t(std :: vector<int>& tokens, int& time_stamp, std :: shared_ptr<submission_t>& addr)
+// Constructors
+submission_data_t :: submission_data_t(void)
+    : time_stamp(0), addr(nullptr), no_matches(0), isPlagged(false) {}
+
+submission_data_t :: submission_data_t(std :: vector<int>& tokens, int& time_stamp, std::shared_ptr<submission_t>& addr)
 {
-    this->tokens = tokens ;
-    this->time_stamp = time_stamp ;
-    this->addr  = addr ;
-    this->no_matches = 0 ;
-    this->isPlagged = false ;
+    this->tokens = tokens;
+    this->time_stamp = time_stamp;
+    this->addr = addr;
+    this->no_matches = 0;
+    this->isPlagged = false;
 }
 
-submission_data_t :: ~submission_data_t(void) { }
+// Destructor
+submission_data_t::~submission_data_t(void) {}
 
-// Implement plagiarism_checker_t  methods
+// plagiarism_checker_t methods
 
-plagiarism_checker_t :: plagiarism_checker_t(void) : numOriginal(0), stop_thread(false)
+// Constructors
+plagiarism_checker_t::plagiarism_checker_t(void) : numOriginal(0), stop_thread(false)
 {
-    this->start_time = std :: chrono :: steady_clock :: now() ;
-    this->background_thread = std :: thread(&plagiarism_checker_t :: process_queue, this) ;
-    this->DataBase.reserve(MAX_NUMBER_OF_FILES) ;
+    this->start_time = std::chrono::steady_clock::now();
+    this->background_thread = std::thread(&plagiarism_checker_t::process_queue, this);
+
+    // reserve space to prevent constant reallocation
+    this->DataBase.reserve(MAX_NUMBER_OF_FILES);
 }
 
-plagiarism_checker_t :: plagiarism_checker_t(std::vector<std::shared_ptr<submission_t>> __submissions) : numOriginal(__submissions.size()), stop_thread(false)
+plagiarism_checker_t::plagiarism_checker_t(std::vector<std::shared_ptr<submission_t>> __submissions) : numOriginal(__submissions.size()), stop_thread(false)
 {
-    this->background_thread = std :: thread(&plagiarism_checker_t :: process_queue, this) ;
-    this->DataBase.reserve(MAX_NUMBER_OF_FILES) ;
+    this->background_thread = std::thread(&plagiarism_checker_t::process_queue, this);
+    this->DataBase.reserve(MAX_NUMBER_OF_FILES);
 
-    submission_data_t temp_submission ;
-    for(const std :: shared_ptr<submission_t>& __submission : __submissions)
+    submission_data_t temp_submission;
+    for (const std::shared_ptr<submission_t>& __submission : __submissions)
     {
-        tokenizer_t tokenizer(__submission->codefile) ;
-        temp_submission.tokens = tokenizer.get_tokens() ;
-        temp_submission.time_stamp = 0;
+        tokenizer_t tokenizer(__submission->codefile);
+        temp_submission.tokens = tokenizer.get_tokens();
+        temp_submission.time_stamp = 0 ;
         temp_submission.addr = __submission ;
+
         this->DataBase.push_back(temp_submission) ;
     }
-    
+
     // Note the start time to calculate the time stamps of future submissions
-    this->start_time = std :: chrono :: steady_clock :: now() ; 
+    this->start_time = std::chrono::steady_clock::now() ;
 }
 
-plagiarism_checker_t :: ~plagiarism_checker_t()
+// Destructor
+plagiarism_checker_t::~plagiarism_checker_t()
 {
     {
-        std :: lock_guard<std :: mutex> lock(queue_mutex) ;
+        std::lock_guard<std::mutex> lock(queue_mutex) ;
         stop_thread = true ;
     }
+
     queue_condition.notify_all() ;
-    if(background_thread.joinable())
+
+    // Complete all background processes before terminating
+    if (background_thread.joinable())
     {
         background_thread.join() ;
     }
 }
 
-void plagiarism_checker_t :: add_submission(std::shared_ptr<submission_t> __submission)
+// Hashing function for a submission
+void plagiarism_checker_t::hash_this_submission(int index, std :: unordered_map<long long, int>& hashed_map)
+{
+    const std::vector<int>& tokens = DataBase[index].tokens ;
+
+    long long hash = 0, power = 1 ;
+    for (size_t i = 0; i < tokens.size(); ++i)
+    {
+        hash = (hash * BASE + tokens[i]) % MOD ;
+        if (i >= MIN_LENGTH - 1)
+        {
+            hashed_map[hash] = i - MIN_LENGTH + 1 ;
+            hash = (hash - tokens[i - MIN_LENGTH + 1] * power % MOD + MOD) % MOD ;
+        }
+        if (i < MIN_LENGTH - 1)
+        {
+            power = (power * BASE) % MOD ;
+        }
+    }
+}
+
+// Add Submission function
+void plagiarism_checker_t::add_submission(std::shared_ptr<submission_t> __submission)
 {
     // Record the time of submission
-    auto now = std :: chrono :: steady_clock :: now() ;
-    auto duration = std :: chrono :: duration_cast<std :: chrono :: milliseconds>(now - this->start_time) ;
+    auto now = std::chrono::steady_clock::now() ;
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - this->start_time) ;
     int time_stamp = duration.count() ;
-    // std :: cerr<<__submission->codefile<<"  =  "<<time_stamp<<std :: endl ;
     
-    // Prepare the temp_sub, leave the tokenizing for later
+    // prepare the new submission to store in data base
     submission_data_t temp_sub ;
     temp_sub.addr = __submission ;
     temp_sub.time_stamp = time_stamp ;
 
-    int index ;
+    int index;
     {
-        std :: lock_guard<std :: mutex> lock(queue_mutex) ;
+        // Use mutex 
+        std::lock_guard<std::mutex> lock(queue_mutex) ;
         index = DataBase.size() ;
         DataBase.push_back(temp_sub) ;
-        submission_queue.push(index) ;
+        submission_queue.push(index) ; 
     }
-
+    
+    // Notify the thread to continue processing
     this->queue_condition.notify_one() ;
 
     return ;
 }
 
-void plagiarism_checker_t :: process_queue(void)
+// The function that runs on the thread
+// Process elements in queue one by one when notified
+void plagiarism_checker_t::process_queue(void)
 {
-    while(true)
+    while (true)
     {
-        int index ;
+        int index;
         {
-            std :: unique_lock<std :: mutex> lock(queue_mutex) ;
-            queue_condition.wait(lock, [this](){
-                return !submission_queue.empty() || stop_thread ;
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            queue_condition.wait(lock, [this]() {
+                return !submission_queue.empty() || stop_thread;
             });
 
-            if(stop_thread && submission_queue.empty())
+            if (stop_thread && submission_queue.empty())
             {
-                break ;
+                break;
             }
 
-            index = submission_queue.front() ;
-            submission_queue.pop() ;
+            index = submission_queue.front();
+            submission_queue.pop();
         }
 
-        this->plagiarism_check(index) ;
+        this->plagiarism_check(index);
     }
     return ;
 }
 
-void plagiarism_checker_t :: plagiarism_check(int index)
+// Plagiarism check function
+void plagiarism_checker_t::plagiarism_check(int index)
 {
     tokenizer_t tokenizer(DataBase[index].addr->codefile) ;
     DataBase[index].tokens = tokenizer.get_tokens() ;
-    std :: vector<int>& sub = DataBase[index].tokens ;
-    int no_matches = 0;
+    
+    // hash the tokens in 15 chunks to the resp start index
+    std :: unordered_map<long long, int> hashed_map ;
+    this->hash_this_submission(index, hashed_map) ; 
+    int no_matches = 0 ;
     int time_diff ;
 
-    for(int i = index-1; i>=0; i--)
+    for (int i = index - 1; i >= 0; i--)
     {
-        std :: vector<int>& prev_sub = DataBase[i].tokens ;
         time_diff = DataBase[index].time_stamp - DataBase[i].time_stamp ;
-
-        // Files more than 1 second prior can be ignored if our file is already plagged
-        if(DataBase[index].isPlagged && (time_diff>TIME_IN_MILLI || i<numOriginal))
+        
+        if (DataBase[index].isPlagged && (time_diff > TIME_IN_MILLI || i < numOriginal))
         {
-            break ;
+            // No more plagiarism to detect
+            break;
         }
 
-        // check plag between prev_sub and sub.
         int num_matches = 0;
-        bool plagged = this->pair_wise_plag(sub, prev_sub, num_matches) ;
-        no_matches+=num_matches ;
 
-        if(plagged)
+        // Check the pair wise plagiarism between the files
+        bool plagged = this->pair_wise_plag(hashed_map, index, i, num_matches);
+
+        // Update the no_matches
+        no_matches += num_matches;
+
+        if (plagged)
         {
-            if(time_diff <=TIME_IN_MILLI && !DataBase[i].isPlagged && i>=numOriginal)
+            // Plag as required
+            if (time_diff <= TIME_IN_MILLI && !DataBase[i].isPlagged && i >= numOriginal)
             {
-                this->plag_this_submission(DataBase[i].addr) ;
-                DataBase[i].isPlagged = true ;
+                this->plag_this_submission(DataBase[i].addr);
+                DataBase[i].isPlagged = true;
             }
-            if(!DataBase[index].isPlagged)
+            if (!DataBase[index].isPlagged)
             {
-                this->plag_this_submission(DataBase[index].addr) ;
-                DataBase[index].isPlagged = true ;   
+                this->plag_this_submission(DataBase[index].addr);
+                DataBase[index].isPlagged = true;
             }
         }
-
-        // check for patch work plagiarism
-        if(time_diff<=TIME_IN_MILLI  && !DataBase[i].isPlagged && i>=numOriginal)
+        
+        // Patch work plagiarism on previous file
+        if (time_diff <= TIME_IN_MILLI && !DataBase[i].isPlagged && i >= numOriginal)
         {
-            DataBase[i].no_matches+=num_matches ;
-            if(DataBase[i].no_matches>=20)
+            DataBase[i].no_matches += num_matches;
+            if (DataBase[i].no_matches >= 20)
             {
-                this->plag_this_submission(DataBase[i].addr) ;
-                DataBase[i].isPlagged = true ;
+                this->plag_this_submission(DataBase[i].addr);
+                DataBase[i].isPlagged = true;
             }
         }
+        
+        // Patch work plagiarism on current file
+        if(!DataBase[index].isPlagged && no_matches>=20)
+        {
+            this->plag_this_submission(DataBase[index].addr) ;
+            DataBase[index].isPlagged = true ;
+        }
+
     }
 
-    // update no_matches of present submission
-    DataBase[index].no_matches = no_matches ;
+    DataBase[index].no_matches = no_matches;
 
-    // return 
     return ;
 }
 
+// Plag the valid submissions by calling flag_student and flag_professor
 void plagiarism_checker_t :: plag_this_submission(std :: shared_ptr<submission_t>& addr)
 {
     // check if submissions are valid and call the plagiarism flag
@@ -188,66 +237,104 @@ void plagiarism_checker_t :: plag_this_submission(std :: shared_ptr<submission_t
     return ;
 }
 
-bool plagiarism_checker_t :: pair_wise_plag(const std :: vector<int>& sub1, const std :: vector<int>& sub2, int& no_matches)
+bool plagiarism_checker_t::pair_wise_plag(const std :: unordered_map<long long, int>& map_curr, int curr, int prev, int& no_matches) 
 {
-    // sizes of the vectors
-    int m = sub1.size() ;
-    int n = sub2.size() ;
-    
-    // Initialize the total exact matched length
-    int total_matched_length = 0 ;
+    // curr_map is the hash map for the current submission 
+    // prev is referencing old submission and curr for current submission
+    const std :: vector<int>& tokens_prev = DataBase[prev].tokens ;
+    const std :: vector<int>& tokens_curr = DataBase[curr].tokens ;
 
-    // temporary length holder  
+    int m = tokens_prev.size() ;
+    int n = tokens_curr.size() ;
+
+    // Variables for rolling hash
+    long long hash = 0, power = 1;
+    int total_matched_length = 0;
     int temp_length ;
 
-    // So as to prevent overlapping ie skipping them we use
-    // Ordered Set to store already matched segments as pairs (start, end) in sub2
-    std::set<std::pair<int, int>> matches;
+    // To store matched ranges (start, end) in current submission
+    std::set<std::pair<int, int>> matches; 
 
-    for(int i = 0; i<=m-MIN_LENGTH; i++)
+    // Compute rolling hash for prev submission
+    for (size_t i = 0; i < m; i++) 
     {
-        // start checking for match from i in sub1;
-        // lets use the iterator it to make sure we skip matched patterns in sub2
-        auto it = matches.begin();
-        for(int j = 0; j<=n-MIN_LENGTH; j++)
+        // Update the hash
+        hash = (hash * BASE + tokens_prev[i]) % MOD; 
+
+        // Precompute the power term for the first window
+        if (i < MIN_LENGTH - 1) {
+            power = (power * BASE) % MOD;
+            continue;
+        }
+
+        // Only start checking after MIN_LENGTH tokens
+        // Return if match not found in previous submission's hash map
+        if(map_curr.find(hash) == map_curr.end())
         {
-            if(it != matches.end() && j > (it->first-MIN_LENGTH))
-            {
-                // A match of >=MIN_LENGTH isn't possible hence skip it 
-                j = it->second ;
-                ++it;
-                continue;
-            }
-            if(sub1[i] != sub2[j]) { continue ; }
+            // Update the hash and return 
+            hash = (hash - tokens_prev[i - MIN_LENGTH + 1] * power % MOD + MOD) % MOD;
+            continue;
+        }
 
-            // Find the degree of match starting from here
-            temp_length = 0;
-            int k1 = i ;
-            int k2 = j ;
-            while(k1<m && k2<n && sub1[k1] == sub2[k2])
-            {
-                // In case we reach a previously matched region break
-                if (it != matches.end() && k2 >= it->first) {
-                    break;
-                }
-                k1++; k2++ ;
-                temp_length+=1 ;
-            }
+        // We found a match. Now continue matching beyond to not miss any matches
+        int k1 = i + 1 ;
+        int j = map_curr.at(hash) ;
+        int k2 = j + 15 ;
 
-            // Check if the match is valid
-            if(temp_length>=75) { return true ; }
-            if(temp_length >= MIN_LENGTH)
+        // Find the first pair with the second element > k2
+        auto it = std::find_if(matches.begin(), matches.end(), [j](const std::pair<int, int>& p) {
+            return p.second >= j;
+        });
+        if(it!=matches.end() && j>=it->first-14)
+        {
+            // Overlap detected => Skip the chunk
+            hash = (hash - tokens_prev[i - MIN_LENGTH + 1] * power % MOD + MOD) % MOD;
+            continue;
+        }
+
+        // the present match is k1-15 to k1-1 matched with k2-15 to k2-1 ;
+        // temp_length is the current matched length
+        temp_length = 15 ;
+        hash = (hash - tokens_prev[i - MIN_LENGTH + 1] * power % MOD + MOD) % MOD;
+        while(k1<m && k2<n && tokens_prev[k1]==tokens_curr[k2])
+        {
+            hash = (hash * BASE + tokens_prev[k1]) % MOD; 
+            if(it!=matches.end() && k2>=it->first)
             {
-                // match found
-                total_matched_length+=temp_length ;
-                no_matches+=(temp_length%15) ;
-                matches.emplace(j, k2-1) ;
-                i = k1-1 ;
                 break ;
             }
-        }  
-        if(total_matched_length>=130 ) { return true ; }
+            hash = (hash - tokens_prev[k1 - MIN_LENGTH + 1] * power % MOD + MOD) % MOD;
+            k1++ ;
+            k2++ ;
+            temp_length+=1 ;
+        }
+
+        // Check if match is valid
+        if(temp_length>=75)
+        {
+            return true ;
+        }
+
+        // not more than 75
+        // update matches and also i properly
+        total_matched_length+=temp_length ;
+        if(total_matched_length>=150) { return true ; }
+
+        // Update no_matches that is number of 15 length patterns detected
+        no_matches+=(temp_length/15) ;
+
+        // Update matches 
+        matches.emplace(j, k2-1) ;
+
+        // Skip the matched part in prev ie update i
+        for(int count = 0; count<14; count++)
+        {
+            hash = (hash * BASE + tokens_prev[k1]) % MOD;
+            hash = (hash - tokens_prev[k1 - MIN_LENGTH + 1] * power % MOD + MOD) % MOD;
+            k1++;
+        }
+        i = k1-1 ;
     }
-    // Not plagged
     return false;
 }
+
