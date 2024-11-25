@@ -329,6 +329,7 @@ bool plagiarism_checker_t::pair_wise_plag(const std :: unordered_map<long long, 
         // Skip the matched part in prev ie update i
         for(int count = 0; count<14; count++)
         {
+            if(k1>=m) { break ; }
             hash = (hash * BASE + tokens_prev[k1]) % MOD;
             hash = (hash - tokens_prev[k1 - MIN_LENGTH + 1] * power % MOD + MOD) % MOD;
             k1++;
